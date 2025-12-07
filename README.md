@@ -1,65 +1,107 @@
-🖐️ Camera Mouse Control (Hand Gesture Interface)
-This project uses MediaPipe Hands and OpenCV to create a virtual mouse controller. It allows users to manipulate the system cursor and perform mouse clicks using hand movements and specific finger gestures captured by a webcam.
+# Hand Gesture Mouse Control
 
-🌟 Features
-Cursor Movement: Controls the system cursor position based on the movement of the Middle Finger Tip of the Left Hand.
+A real-time hand gesture recognition system that allows you to control your computer mouse using hand movements and gestures detected through your webcam.
 
-Uses Exponential Moving Average (EMA) smoothing to reduce jitter.
+## Features
 
-Implements a Dead Zone to prevent unwanted micro-movements when the hand is still.
+- **Hand Tracking**: Uses MediaPipe to detect and track hand landmarks in real-time
+- **Cursor Control**: Move your mouse cursor by moving your left hand's middle finger
+- **Gesture-Based Clicks**:
+  - Left hand thumb + index finger: Double-click
+  - Left hand thumb + pinky: Click and drag (hold)
+  - Right hand gestures: Reserved for future functionality
+- **Smooth Movement**: Implements exponential moving average (EMA) smoothing for stable cursor control
+- **Dead Zone**: Prevents jittery movements with a configurable threshold
+- **Visual Feedback**: Real-time display of hand skeleton and gesture distances
+- **Performance Monitoring**: FPS counter to monitor system performance
 
-Applies non-linear velocity mapping (power function) for finer control at slow speeds.
+## Requirements
 
-Left Double-Click: Performed by touching the Thumb Tip to the Index Finger Tip on the Left Hand.
+```
+opencv-python
+mediapipe
+pygame
+numpy
+```
 
-Left Click & Drag (Hold): Performed by touching the Thumb Tip to the Pinky Finger Tip on the Left Hand. The mouse button remains pressed until the fingers are separated.
+## Installation
 
-Real-time Visualization: Displays the detected hand landmarks, FPS, and gesture status.
+1. Clone this repository:
+```bash
+git clone https://github.com/yourusername/hand-gesture-mouse-control.git
+cd hand-gesture-mouse-control
+```
 
-🛠️ Prerequisites
-Operating System: Windows (due to reliance on Win32 API for cursor control).
-
-Webcam: A functioning webcam is required.
-
-Python: Version 3.x.
-
-📦 Installation
-Clone the repository:
-
-Bash
-
-git clone https://github.com/your-username/camera-mouse-control.git
-cd camera-mouse-control
-Install the required Python packages:
-
-Bash
-
+2. Install the required dependencies:
+```bash
 pip install opencv-python mediapipe pygame numpy
-🚀 Usage
-Run the main script:
+```
 
-Bash
+## Usage
 
-python your_script_name.py # Replace with the actual file name
-A window titled "MediaPipe Hands - Real-Time" will open, displaying the live video feed from your webcam.
+1. Run the script:
+```bash
+python hand_mouse_control.py
+```
 
-Gesture Guide
-The system primarily uses the Left Hand for cursor control and clicking.
+2. Position your left hand in front of the webcam
 
-Action	Hand	Gesture
-Cursor Movement	Left	Move the hand freely. Cursor tracks the Middle Finger Tip (Landmark 12).
-Left Double-Click	Left	Touch Thumb Tip (4) to Index Finger Tip (8).
-Left Click & Drag	Left	Touch Thumb Tip (4) to Pinky Finger Tip (20) to press down. Separate them to release.
+3. Control the mouse:
+   - **Move cursor**: Move your left hand to control the cursor position
+   - **Double-click**: Touch your left thumb to your left index finger
+   - **Click and drag**: Touch your left thumb to your left pinky finger (hold to drag, release to drop)
 
-The MediaPipe library provides 21 landmarks per hand. The finger tips used for interaction correspond to the following indices: .
+4. Press `q` to quit the application
 
-⚙️ Configuration & Tuning
-You can adjust the responsiveness and click sensitivity by modifying constants in the script.
+## Configuration
 
-Variable	Location	Description
-FRAME_WIDTH, FRAME_HEIGHT	Constants	Resolution of the webcam feed. Lower values improve processing speed.
-alpha	HandTracker.__init__	EMA Smoothing Factor. Controls cursor jitter vs. lag. Lower values (≈0.1) mean more smoothing/lag.
-DEAD_ZONE_THRESHOLD	HandTracker.__init__	Radius (in frame pixels) where movement is ignored to prevent cursor drift when the hand is still.
-GAIN	Main Loop (nl func)	Overall Sensitivity. A multiplier for cursor speed. Lower values slow down the cursor.
-GAMMA	Main Loop (nl func)	Velocity Power Exponent. Higher values create greater cursor acceleration: small hand movements give precise control, large movements are fast. (Default: 1.0 - linear)
-Distance Thresholds	HandTracker.CLICK()	The pixel distance thresholds (e.g., dist_thumb_index < 15) that trigger a click. Adjust based on camera resolution and hand size.
+You can adjust various parameters in the code:
+
+- `FRAME_WIDTH`, `FRAME_HEIGHT`: Webcam resolution (default: 320x240)
+- `alpha`: EMA smoothing factor (default: 0.12, lower = smoother but slower response)
+- `DEAD_ZONE_THRESHOLD`: Minimum movement to register (default: 3 pixels)
+- `GAMMA`: Non-linear velocity mapping exponent (default: 1.0)
+- `GAIN`: Overall sensitivity multiplier (default: 2.0)
+- `MAX_STEP`: Maximum cursor movement per frame (default: 40 pixels)
+
+## How It Works
+
+1. **Hand Detection**: MediaPipe Hands detects hand landmarks in each frame
+2. **Gesture Recognition**: Calculates distances between finger tips to detect gestures
+3. **Cursor Movement**: Tracks the left hand's middle finger tip position and translates it to cursor coordinates
+4. **Smoothing**: Applies exponential moving average to reduce jitter
+5. **Mouse Events**: Uses Windows API (ctypes) to control system cursor and generate mouse clicks
+
+## Limitations
+
+- **Windows Only**: Currently uses Windows-specific APIs for mouse control
+- **Single Hand**: Optimized for tracking one hand at a time
+- **Lighting Conditions**: Performance depends on good lighting for accurate hand detection
+- **CPU Intensive**: Real-time video processing may impact system performance
+
+## Future Enhancements
+
+- Cross-platform support (macOS, Linux)
+- Right-hand gesture functionality
+- Customizable gesture mappings
+- Scrolling gestures
+- Configuration file for easy parameter adjustment
+
+## Troubleshooting
+
+**Low FPS**: Reduce webcam resolution or close other applications
+
+**Jittery cursor**: Decrease `alpha` value for more smoothing or increase `DEAD_ZONE_THRESHOLD`
+
+**Cursor too fast/slow**: Adjust `GAIN` and `GAMMA` parameters
+
+**Hand not detected**: Ensure good lighting and hand is within webcam view
+
+## License
+
+MIT License - feel free to use and modify as needed
+
+## Acknowledgments
+
+- Built with [MediaPipe](https://google.github.io/mediapipe/) by Google
+- Uses [OpenCV](https://opencv.org/) for video processing
