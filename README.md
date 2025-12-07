@@ -34,7 +34,8 @@ cd hand-gesture-mouse-control
 
 2. Install the required dependencies:
 ```bash
-pip install opencv-python mediapipe pygame numpy
+Python 3.10
+pip install -r requirements.txt
 ```
 
 ## Usage
