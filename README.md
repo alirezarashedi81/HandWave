@@ -1,142 +1,65 @@
-# HandWave — Real-Time Hand Tracking Mouse Controller (MediaPipe + OpenCV)
+🖐️ Camera Mouse Control (Hand Gesture Interface)
+This project uses MediaPipe Hands and OpenCV to create a virtual mouse controller. It allows users to manipulate the system cursor and perform mouse clicks using hand movements and specific finger gestures captured by a webcam.
 
-HandWave is a real-time hand-tracking mouse controller built using **MediaPipe**, **OpenCV**, and **Windows system cursor APIs**.  
-It allows you to control your mouse using natural hand gestures:
+🌟 Features
+Cursor Movement: Controls the system cursor position based on the movement of the Middle Finger Tip of the Left Hand.
 
-- 🖱️ **Left hand** → cursor control  
-- 👆 Thumb + Index → **Double-click**  
-- 🤙 Thumb + Pinky → **Hold & Drag**  
-- ✋ Right hand → **Gesture distance tracking** (debug / future features)
+Uses Exponential Moving Average (EMA) smoothing to reduce jitter.
 
-This project uses smoothing, dead-zone filtering, velocity scaling, and stable MediaPipe landmark tracking to achieve **fast and accurate cursor movement**.
+Implements a Dead Zone to prevent unwanted micro-movements when the hand is still.
 
----
+Applies non-linear velocity mapping (power function) for finer control at slow speeds.
 
-## ✨ Features
+Left Double-Click: Performed by touching the Thumb Tip to the Index Finger Tip on the Left Hand.
 
-### 🎯 **Cursor Control (Left Hand)**
-- Move your hand → moves the mouse cursor  
-- Natural motion with:
-  - EMA smoothing  
-  - Dead-zone to remove jitter  
-  - Velocity mapping for high-resolution screens  
+Left Click & Drag (Hold): Performed by touching the Thumb Tip to the Pinky Finger Tip on the Left Hand. The mouse button remains pressed until the fingers are separated.
 
-### 👆 **Gestures**
-| Gesture | Hand | Action |
-|--------|------|--------|
-| Thumb + Index | Left | Double-click |
-| Thumb + Pinky | Left | Hold left mouse button (drag) |
-| Thumb + Index | Right | Distance display (debug) |
-| Thumb + Pinky | Right | Distance display (debug) |
+Real-time Visualization: Displays the detected hand landmarks, FPS, and gesture status.
 
----
+🛠️ Prerequisites
+Operating System: Windows (due to reliance on Win32 API for cursor control).
 
-## 📦 Installation
+Webcam: A functioning webcam is required.
 
-### 1. **Install Python 3.10**
-MediaPipe **only supports Python ≤ 3.10**.
+Python: Version 3.x.
 
-Download Python 3.10 from:  
-https://www.python.org/downloads/release/python-3100/
+📦 Installation
+Clone the repository:
 
----
+Bash
 
-## 2. **Create Virtual Environment**
-python3.10 -m venv HandWave
+git clone https://github.com/your-username/camera-mouse-control.git
+cd camera-mouse-control
+Install the required Python packages:
 
+Bash
 
-Activate it:
+pip install opencv-python mediapipe pygame numpy
+🚀 Usage
+Run the main script:
 
-### **Windows**
+Bash
 
-HandWave\Scripts\activate
+python your_script_name.py # Replace with the actual file name
+A window titled "MediaPipe Hands - Real-Time" will open, displaying the live video feed from your webcam.
 
+Gesture Guide
+The system primarily uses the Left Hand for cursor control and clicking.
 
----
+Action	Hand	Gesture
+Cursor Movement	Left	Move the hand freely. Cursor tracks the Middle Finger Tip (Landmark 12).
+Left Double-Click	Left	Touch Thumb Tip (4) to Index Finger Tip (8).
+Left Click & Drag	Left	Touch Thumb Tip (4) to Pinky Finger Tip (20) to press down. Separate them to release.
 
-## 3. **Install Dependencies**
+The MediaPipe library provides 21 landmarks per hand. The finger tips used for interaction correspond to the following indices: .
 
-Create a `requirements.txt` file:
+⚙️ Configuration & Tuning
+You can adjust the responsiveness and click sensitivity by modifying constants in the script.
 
-
-
-opencv-python==4.9.0.80
-mediapipe==0.10.9
-pygame==2.5.2
-numpy==1.26.4
-
-
-Then install:
-
-
-
-pip install -r requirements.txt
-
-
----
-
-## ▶️ Running the Program
-
-Once inside the environment:
-
-
-
-python handwave.py
-
-
-Exit the program by pressing:
-
-
-
-q
-
-
----
-
-## 📁 Project Structure
-
-
-
-HandWave/
-│
-├── handwave.py # Main application code
-├── requirements.txt # Project dependencies
-└── README.md # Documentation
-
-
----
-
-## 💡 How It Works
-
-### 🔍 1. **Hand Tracking**
-MediaPipe detects:
-- 21 landmarks per hand  
-- Left / right handedness  
-- Thumb, index, middle, pinky tip coordinates  
-
-### 🧮 2. **Smoothing**
-Every frame uses **Exponential Moving Average (EMA)**:
-```python
-smoothed = alpha * current + (1 - alpha) * previous
-
-🌀 3. Dead-Zone
-
-Tiny movements around the previous point are ignored:
-
-distance < DEAD_ZONE_THRESHOLD
-
-
-Prevents shaking.
-
-🚀 4. Velocity Mapping
-
-Frame-space → Screen-space scaling + nonlinear motion:
-
-vx = (dx ** gamma) * gain
-
-🖱 5. Windows Cursor Control
-
-Uses Win32 API:
-
-SetCursorPos(x, y)
-mouse_event(...)
+Variable	Location	Description
+FRAME_WIDTH, FRAME_HEIGHT	Constants	Resolution of the webcam feed. Lower values improve processing speed.
+alpha	HandTracker.__init__	EMA Smoothing Factor. Controls cursor jitter vs. lag. Lower values (≈0.1) mean more smoothing/lag.
+DEAD_ZONE_THRESHOLD	HandTracker.__init__	Radius (in frame pixels) where movement is ignored to prevent cursor drift when the hand is still.
+GAIN	Main Loop (nl func)	Overall Sensitivity. A multiplier for cursor speed. Lower values slow down the cursor.
+GAMMA	Main Loop (nl func)	Velocity Power Exponent. Higher values create greater cursor acceleration: small hand movements give precise control, large movements are fast. (Default: 1.0 - linear)
+Distance Thresholds	HandTracker.CLICK()	The pixel distance thresholds (e.g., dist_thumb_index < 15) that trigger a click. Adjust based on camera resolution and hand size.
