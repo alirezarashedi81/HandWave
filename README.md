@@ -28,7 +28,7 @@ numpy
 
 1. Clone this repository:
 ```bash
-git clone https://github.com/yourusername/hand-gesture-mouse-control.git
+git clone https://github.com/alirezarashedi81/hand-gesture-mouse-control.git
 cd hand-gesture-mouse-control
 ```
 
