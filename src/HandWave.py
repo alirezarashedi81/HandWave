@@ -3,7 +3,9 @@ import cv2
 import mediapipe as mp
 import winsound
 import time
-import pyautogui
+import pygame
+import ctypes
+from ctypes import wintypes
 import numpy as np
 
 # Constants
@@ -32,6 +34,57 @@ hands = mp_hands.Hands(
 
 )
 
+# Initialize pygame (optional) and Win32 mouse helpers for system cursor control
+pygame.init()
+try:
+    pygame.display.set_mode((1, 1), pygame.HIDDEN)
+except Exception:
+    # Some environments may not support hidden windows; ignore if not available
+    pass
+
+# Win32 API helpers for cursor and mouse events (works on Windows)
+user32 = ctypes.windll.user32
+user32.SetProcessDPIAware()
+
+def get_screen_size():
+    return user32.GetSystemMetrics(0), user32.GetSystemMetrics(1)
+
+def set_cursor_pos(x, y):
+    user32.SetCursorPos(int(x), int(y))
+
+def get_cursor_pos():
+    pt = wintypes.POINT()
+    user32.GetCursorPos(ctypes.byref(pt))
+    return pt.x, pt.y
+
+# Mouse event flags
+MOUSEEVENTF_LEFTDOWN = 0x0002
+MOUSEEVENTF_LEFTUP = 0x0004
+MOUSEEVENTF_RIGHTDOWN = 0x0008
+MOUSEEVENTF_RIGHTUP = 0x0010
+
+def mouse_down(button='left'):
+    if button == 'left':
+        user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+    else:
+        user32.mouse_event(MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, 0)
+
+def mouse_up(button='left'):
+    if button == 'left':
+        user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+    else:
+        user32.mouse_event(MOUSEEVENTF_RIGHTUP, 0, 0, 0, 0)
+
+def click(button='left'):
+    mouse_down(button)
+    time.sleep(0.02)
+    mouse_up(button)
+
+def double_click(button='left'):
+    click(button)
+    time.sleep(0.06)
+    click(button)
+
 class HandTracker:
     def __init__(self, frame_shape):
         self.height, self.width, _ = frame_shape
@@ -39,7 +92,7 @@ class HandTracker:
         self.right_thumb_pinky_touch = False
         self.left_thumb_index_touch = False
         self.left_thumb_pinky_touch = False
-        self.alpha = 0.3
+        self.alpha = 0.12  # EMA smoothing factor
         self.prev_middle_x = None
         self.prev_middle_y = None
         self.DEAD_ZONE_THRESHOLD = 3  # Circular threshold in pixels
@@ -73,12 +126,13 @@ class HandTracker:
             if dist_thumb_index < 10 and not self.right_thumb_index_touch:
                 try:
                     # winsound.Beep(1000, 100)
+             
                     self.right_thumb_index_touch = True
                 except Exception as e:
                     print(f"Right Hand Error: {e}")
             elif dist_thumb_index > 15:
                 self.right_thumb_index_touch = False
-            
+        
             if dist_thumb_pinky < 10 and not self.right_thumb_pinky_touch:
                 try:
                     # winsound.Beep(1500, 100)
@@ -89,23 +143,28 @@ class HandTracker:
                 self.right_thumb_pinky_touch = False
 
         if hand_label == "Left":
+            # Left thumb + index => immediate double-click
             if dist_thumb_index < 15 and not self.left_thumb_index_touch:
                 try:
-                    winsound.Beep(1000, 100)
+                    double_click('left')
                     self.left_thumb_index_touch = True
                 except Exception as e:
                     print(f"Left Hand Error: {e}")
             elif dist_thumb_index > 20:
-
                 self.left_thumb_index_touch = False
-            
+
+            # Left thumb + pinky => hold mouse down while touching, release when separated
             if dist_thumb_pinky < 10 and not self.left_thumb_pinky_touch:
                 try:
-                    # winsound.Beep(1500, 100)
+                    mouse_down('left')
                     self.left_thumb_pinky_touch = True
                 except Exception as e:
                     print(f"Left Hand Error: {e}")
-            elif dist_thumb_pinky > 15:
+            elif dist_thumb_pinky > 15 and self.left_thumb_pinky_touch:
+                try:
+                    mouse_up('left')
+                except Exception as e:
+                    print(f"Left Hand Error: {e}")
                 self.left_thumb_pinky_touch = False
 
         y_offset = Y_OFFSET if hand_label == "Right" else Y_OFFSET * 3
@@ -136,17 +195,16 @@ cap = cv2.VideoCapture(0)
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
 if not cap.isOpened():
-    print("Cannot open webcam")
+    print("Cannot qpen webcam")
     exit()
 
-screen_width, screen_height = pyautogui.size()
+screen_width, screen_height = get_screen_size()
 
 # Initialize HandTracker and FpsCalculator
 hand_tracker = HandTracker((FRAME_HEIGHT, FRAME_WIDTH, 3))
 fps_calculator = FpsCalculator()
 
-# Set PyAutoGUI fail-safe
-pyautogui.FAILSAFE = True
+# (pyautogui removed) No fail-safe available; be cautious moving cursor to corners.
 
 while True:
     ret, frame = cap.read()
@@ -227,33 +285,71 @@ while True:
                 )
                 distances = hand_tracker.CLICK(hand_landmarks, frame, hand_label)
                 try:
-                    screen_width, screen_height = pyautogui.size()
+                    screen_width, screen_height = get_screen_size()
                     middle_x = distances['middle_x']
                     middle_y = distances['middle_y']
                     if not (0 <= middle_x <= FRAME_WIDTH and 0 <= middle_y <= FRAME_HEIGHT):
                         print(f"Invalid raw coordinates: middle_x={middle_x}, middle_y={middle_y}")
                         continue
                     if not hand_tracker.in_dead_zone(middle_x, middle_y, hand_tracker.prev_middle_x, hand_tracker.prev_middle_y):
+                        # Smooth the middle tip coordinates (frame space)
                         smoothed_middle_x = hand_tracker.apply_ema(middle_x, hand_tracker.prev_middle_x)
                         smoothed_middle_y = hand_tracker.apply_ema(middle_y, hand_tracker.prev_middle_y)
-                        hand_tracker.prev_middle_x = smoothed_middle_x
-                        hand_tracker.prev_middle_y = smoothed_middle_y
+
                         if not (np.isfinite(smoothed_middle_x) and np.isfinite(smoothed_middle_y)):
                             print(f"Invalid smoothed coordinates: smoothed_middle_x={smoothed_middle_x}, smoothed_middle_y={smoothed_middle_y}")
                             continue
-                        print(f"Raw: ({middle_x:.2f}, {middle_y:.2f}), Smoothed: ({smoothed_middle_x:.2f}, {smoothed_middle_y:.2f})")
-                        distance = ((middle_x - (hand_tracker.prev_middle_x or 0)) ** 2 + (middle_y - (hand_tracker.prev_middle_y or 0)) ** 2) ** 0.5
-                        print(f"Distance: {distance:.2f}, Dead Zone: {hand_tracker.in_dead_zone(middle_x, middle_y, hand_tracker.prev_middle_x, hand_tracker.prev_middle_y)}")
-                        screen_x = np.interp(smoothed_middle_x, [0, FRAME_WIDTH], [0, screen_width])
-                        screen_y = np.interp(smoothed_middle_y, [0, FRAME_HEIGHT], [0, screen_height])
-                        if not (np.isfinite(screen_x) and np.isfinite(screen_y)):
-                            print(f"Invalid screen coordinates: screen_x={screen_x}, screen_y={screen_y}")
-                            continue
-                        pyautogui.moveTo(screen_x, screen_y)
-                        cv2.putText(frame, f"Left Middle Tip: ({int(smoothed_middle_x)}, {int(smoothed_middle_y)})", 
-                                    (10, Y_OFFSET * 5), cv2.FONT_HERSHEY_SIMPLEX, FONT_SCALE, TEXT_COLOR, FONT_THICKNESS)
-                        cv2.putText(frame, f"Mouse: ({int(screen_x)}, {int(screen_y)})", 
-                                    (10, Y_OFFSET * 6), cv2.FONT_HERSHEY_SIMPLEX, FONT_SCALE, TEXT_COLOR, FONT_THICKNESS)
+
+                        # Compute frame-space deltas using previous smoothed coords
+                        prev_x = hand_tracker.prev_middle_x
+                        prev_y = hand_tracker.prev_middle_y
+                        dx = smoothed_middle_x - (prev_x if prev_x is not None else smoothed_middle_x)
+                        dy = smoothed_middle_y - (prev_y if prev_y is not None else smoothed_middle_y)
+
+                        # Non-linear (power) velocity mapping parameters
+                        GAMMA = 1.0   # exponent >1: small deltas -> finer control, large deltas -> faster
+                        GAIN = 2.0    # overall sensitivity (tune this down if still fast)
+
+                        def nl(delta, gamma=GAMMA, gain=GAIN):
+                            if delta == 0:
+                                return 0.0
+                            sign = 1.0 if delta > 0 else -1.0
+                            return sign * (abs(delta) ** gamma) * gain
+
+                        # Map frame deltas -> screen-pixel velocity
+                        vx = nl(dx) * (screen_width / FRAME_WIDTH)
+                        vy = nl(dy) * (screen_height / FRAME_HEIGHT)
+
+                        # Cap per-frame movement to avoid jumps
+                        MAX_STEP = 40.0
+                        if abs(vx) > MAX_STEP:
+                            vx = np.sign(vx) * MAX_STEP
+                        if abs(vy) > MAX_STEP:
+                            vy = np.sign(vy) * MAX_STEP
+
+                        try:
+                            cur_x, cur_y = get_cursor_pos()
+                            target_x = cur_x + vx
+                            target_y = cur_y + vy
+                            # Clamp to screen
+                            target_x = min(max(target_x, 0), screen_width - 1)
+                            target_y = min(max(target_y, 0), screen_height - 1)
+                            set_cursor_pos(target_x, target_y)
+                        except Exception as e:
+                            print(f"Mouse Move Error: {e}")
+
+                        # Display info for tuning
+                        try:
+                            cv2.putText(frame, f"vx:{vx:.1f} vy:{vy:.1f}", (10, Y_OFFSET * 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, TEXT_COLOR, 1)
+                            est_x = np.interp(smoothed_middle_x, [0, FRAME_WIDTH], [0, screen_width])
+                            est_y = np.interp(smoothed_middle_y, [0, FRAME_HEIGHT], [0, screen_height])
+                            cv2.putText(frame, f"Est Cursor: ({int(est_x)}, {int(est_y)})", (10, Y_OFFSET * 6), cv2.FONT_HERSHEY_SIMPLEX, 0.5, TEXT_COLOR, 1)
+                        except Exception:
+                            pass
+
+                        # Update stored previous smoothed coordinates for next frame
+                        hand_tracker.prev_middle_x = smoothed_middle_x
+                        hand_tracker.prev_middle_y = smoothed_middle_y
                     else:
                         cv2.putText(frame, "Dead Zone Active", (10, Y_OFFSET * 7), cv2.FONT_HERSHEY_SIMPLEX, FONT_SCALE, TEXT_COLOR, FONT_THICKNESS)
                 except (TypeError, ValueError) as e:
