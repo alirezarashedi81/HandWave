@@ -189,182 +189,187 @@ class FpsCalculator:
     
     def get_fps(self):
         return self.fps
-
-# Initialize video capture
-cap = cv2.VideoCapture(0)
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
-if not cap.isOpened():
-    print("Cannot qpen webcam")
-    exit()
-
-screen_width, screen_height = get_screen_size()
-
-# Initialize HandTracker and FpsCalculator
-hand_tracker = HandTracker((FRAME_HEIGHT, FRAME_WIDTH, 3))
-fps_calculator = FpsCalculator()
-
-# (pyautogui removed) No fail-safe available; be cautious moving cursor to corners.
-
-while True:
-    ret, frame = cap.read()
-    if not ret:
-        print("Failed to grab frame")
-        break
-    
-    fps = fps_calculator.calculate_fps()
-    cv2.putText(
-        frame,
-        f"FPS: {int(fps)}",
-        (10, 30),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        1,
-        (0, 255, 0),
-        2
-    )
-
-    frame = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT))
-    frame = cv2.flip(frame, 1)
-    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    
-    results = hands.process(frame_rgb)
-
-    right_hand_landmarks = None
-    left_hand_landmarks = None
-    right_hand_score = 0
-    left_hand_score = 0
-    
-    if not (results.multi_hand_landmarks and results.multi_handedness):
-        hand_tracker.prev_middle_x = None
-        hand_tracker.prev_middle_y = None
-        print("No hands detected, resetting EMA.")
-
-    if results.multi_hand_landmarks and results.multi_handedness:
-        for hand_idx, (hand_landmarks, hand_handedness) in enumerate(zip(results.multi_hand_landmarks, results.multi_handedness)):
-            hand_label = hand_handedness.classification[0].label
-            hand_score = hand_handedness.classification[0].score
-
-            if hand_label == "Right":
-                right_hand_landmarks = hand_landmarks
-                right_hand_score = hand_score
-            elif hand_label == "Left":
-                left_hand_landmarks = hand_landmarks
-                left_hand_score = hand_score
-
-            right_custom_connection = mp_hands.HAND_CONNECTIONS.union({(5, 17), (8, 4), (20, 4)})
-            right_connection_style = {conn: mp_drawing.DrawingSpec(color=RED_COLOR, thickness=1)
-                                     for conn in right_custom_connection}
-            right_landmark_style = {i: mp_drawing.DrawingSpec(color=RED_COLOR, thickness=1, circle_radius=1)
-                                    for i in range(21)}
+        
+def main():
+        # Initialize video capture
+        cap = cv2.VideoCapture(0)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
+        if not cap.isOpened():
+            print("Cannot qpen webcam")
+            exit()
+        
+        screen_width, screen_height = get_screen_size()
+        
+        # Initialize HandTracker and FpsCalculator
+        hand_tracker = HandTracker((FRAME_HEIGHT, FRAME_WIDTH, 3))
+        fps_calculator = FpsCalculator()
+        
+        # (pyautogui removed) No fail-safe available; be cautious moving cursor to corners.
+        
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                print("Failed to grab frame")
+                break
             
-            left_custom_connection = mp_hands.HAND_CONNECTIONS.union({(5, 17)})
-            left_connection_style = {conn: mp_drawing.DrawingSpec(color=BLUE_COLOR, thickness=1)
-                                     for conn in left_custom_connection}
-            left_landmark_style = {i: mp_drawing.DrawingSpec(color=BLUE_COLOR, thickness=1, circle_radius=1)
-                                   for i in range(21)}
+            fps = fps_calculator.calculate_fps()
+            cv2.putText(
+                frame,
+                f"FPS: {int(fps)}",
+                (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1,
+                (0, 255, 0),
+                2
+            )
+        
+            frame = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT))
+            frame = cv2.flip(frame, 1)
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             
-            if right_hand_landmarks:
-                mp_drawing.draw_landmarks(
-                    frame,
-                    right_hand_landmarks,
-                    right_custom_connection,
-                    right_landmark_style,
-                    right_connection_style
-                )
-                x = int(hand_landmarks.landmark[0].x * FRAME_WIDTH)
-                y = int(hand_landmarks.landmark[0].y * FRAME_HEIGHT)
-                distances = hand_tracker.CLICK(hand_landmarks, frame, hand_label)
+            results = hands.process(frame_rgb)
+        
+            right_hand_landmarks = None
+            left_hand_landmarks = None
+            right_hand_score = 0
+            left_hand_score = 0
             
-            if left_hand_landmarks:
-                mp_drawing.draw_landmarks(
-                    frame,
-                    left_hand_landmarks,
-                    left_custom_connection,
-                    left_landmark_style,
-                    left_connection_style
-                )
-                distances = hand_tracker.CLICK(hand_landmarks, frame, hand_label)
-                try:
-                    screen_width, screen_height = get_screen_size()
-                    middle_x = distances['middle_x']
-                    middle_y = distances['middle_y']
-                    if not (0 <= middle_x <= FRAME_WIDTH and 0 <= middle_y <= FRAME_HEIGHT):
-                        print(f"Invalid raw coordinates: middle_x={middle_x}, middle_y={middle_y}")
-                        continue
-                    if not hand_tracker.in_dead_zone(middle_x, middle_y, hand_tracker.prev_middle_x, hand_tracker.prev_middle_y):
-                        # Smooth the middle tip coordinates (frame space)
-                        smoothed_middle_x = hand_tracker.apply_ema(middle_x, hand_tracker.prev_middle_x)
-                        smoothed_middle_y = hand_tracker.apply_ema(middle_y, hand_tracker.prev_middle_y)
-
-                        if not (np.isfinite(smoothed_middle_x) and np.isfinite(smoothed_middle_y)):
-                            print(f"Invalid smoothed coordinates: smoothed_middle_x={smoothed_middle_x}, smoothed_middle_y={smoothed_middle_y}")
-                            continue
-
-                        # Compute frame-space deltas using previous smoothed coords
-                        prev_x = hand_tracker.prev_middle_x
-                        prev_y = hand_tracker.prev_middle_y
-                        dx = smoothed_middle_x - (prev_x if prev_x is not None else smoothed_middle_x)
-                        dy = smoothed_middle_y - (prev_y if prev_y is not None else smoothed_middle_y)
-
-                        # Non-linear (power) velocity mapping parameters
-                        GAMMA = 1.0   # exponent >1: small deltas -> finer control, large deltas -> faster
-                        GAIN = 2.0    # overall sensitivity (tune this down if still fast)
-
-                        def nl(delta, gamma=GAMMA, gain=GAIN):
-                            if delta == 0:
-                                return 0.0
-                            sign = 1.0 if delta > 0 else -1.0
-                            return sign * (abs(delta) ** gamma) * gain
-
-                        # Map frame deltas -> screen-pixel velocity
-                        vx = nl(dx) * (screen_width / FRAME_WIDTH)
-                        vy = nl(dy) * (screen_height / FRAME_HEIGHT)
-
-                        # Cap per-frame movement to avoid jumps
-                        MAX_STEP = 40.0
-                        if abs(vx) > MAX_STEP:
-                            vx = np.sign(vx) * MAX_STEP
-                        if abs(vy) > MAX_STEP:
-                            vy = np.sign(vy) * MAX_STEP
-
+            if not (results.multi_hand_landmarks and results.multi_handedness):
+                hand_tracker.prev_middle_x = None
+                hand_tracker.prev_middle_y = None
+                print("No hands detected, resetting EMA.")
+        
+            if results.multi_hand_landmarks and results.multi_handedness:
+                for hand_idx, (hand_landmarks, hand_handedness) in enumerate(zip(results.multi_hand_landmarks, results.multi_handedness)):
+                    hand_label = hand_handedness.classification[0].label
+                    hand_score = hand_handedness.classification[0].score
+        
+                    if hand_label == "Right":
+                        right_hand_landmarks = hand_landmarks
+                        right_hand_score = hand_score
+                    elif hand_label == "Left":
+                        left_hand_landmarks = hand_landmarks
+                        left_hand_score = hand_score
+        
+                    right_custom_connection = mp_hands.HAND_CONNECTIONS.union({(5, 17), (8, 4), (20, 4)})
+                    right_connection_style = {conn: mp_drawing.DrawingSpec(color=RED_COLOR, thickness=1)
+                                             for conn in right_custom_connection}
+                    right_landmark_style = {i: mp_drawing.DrawingSpec(color=RED_COLOR, thickness=1, circle_radius=1)
+                                            for i in range(21)}
+                    
+                    left_custom_connection = mp_hands.HAND_CONNECTIONS.union({(5, 17)})
+                    left_connection_style = {conn: mp_drawing.DrawingSpec(color=BLUE_COLOR, thickness=1)
+                                             for conn in left_custom_connection}
+                    left_landmark_style = {i: mp_drawing.DrawingSpec(color=BLUE_COLOR, thickness=1, circle_radius=1)
+                                           for i in range(21)}
+                    
+                    if right_hand_landmarks:
+                        mp_drawing.draw_landmarks(
+                            frame,
+                            right_hand_landmarks,
+                            right_custom_connection,
+                            right_landmark_style,
+                            right_connection_style
+                        )
+                        x = int(hand_landmarks.landmark[0].x * FRAME_WIDTH)
+                        y = int(hand_landmarks.landmark[0].y * FRAME_HEIGHT)
+                        distances = hand_tracker.CLICK(hand_landmarks, frame, hand_label)
+                    
+                    if left_hand_landmarks:
+                        mp_drawing.draw_landmarks(
+                            frame,
+                            left_hand_landmarks,
+                            left_custom_connection,
+                            left_landmark_style,
+                            left_connection_style
+                        )
+                        distances = hand_tracker.CLICK(hand_landmarks, frame, hand_label)
                         try:
-                            cur_x, cur_y = get_cursor_pos()
-                            target_x = cur_x + vx
-                            target_y = cur_y + vy
-                            # Clamp to screen
-                            target_x = min(max(target_x, 0), screen_width - 1)
-                            target_y = min(max(target_y, 0), screen_height - 1)
-                            set_cursor_pos(target_x, target_y)
-                        except Exception as e:
+                            screen_width, screen_height = get_screen_size()
+                            middle_x = distances['middle_x']
+                            middle_y = distances['middle_y']
+                            if not (0 <= middle_x <= FRAME_WIDTH and 0 <= middle_y <= FRAME_HEIGHT):
+                                print(f"Invalid raw coordinates: middle_x={middle_x}, middle_y={middle_y}")
+                                continue
+                            if not hand_tracker.in_dead_zone(middle_x, middle_y, hand_tracker.prev_middle_x, hand_tracker.prev_middle_y):
+                                # Smooth the middle tip coordinates (frame space)
+                                smoothed_middle_x = hand_tracker.apply_ema(middle_x, hand_tracker.prev_middle_x)
+                                smoothed_middle_y = hand_tracker.apply_ema(middle_y, hand_tracker.prev_middle_y)
+        
+                                if not (np.isfinite(smoothed_middle_x) and np.isfinite(smoothed_middle_y)):
+                                    print(f"Invalid smoothed coordinates: smoothed_middle_x={smoothed_middle_x}, smoothed_middle_y={smoothed_middle_y}")
+                                    continue
+        
+                                # Compute frame-space deltas using previous smoothed coords
+                                prev_x = hand_tracker.prev_middle_x
+                                prev_y = hand_tracker.prev_middle_y
+                                dx = smoothed_middle_x - (prev_x if prev_x is not None else smoothed_middle_x)
+                                dy = smoothed_middle_y - (prev_y if prev_y is not None else smoothed_middle_y)
+        
+                                # Non-linear (power) velocity mapping parameters
+                                GAMMA = 1.0   # exponent >1: small deltas -> finer control, large deltas -> faster
+                                GAIN = 2.0    # overall sensitivity (tune this down if still fast)
+        
+                                def nl(delta, gamma=GAMMA, gain=GAIN):
+                                    if delta == 0:
+                                        return 0.0
+                                    sign = 1.0 if delta > 0 else -1.0
+                                    return sign * (abs(delta) ** gamma) * gain
+        
+                                # Map frame deltas -> screen-pixel velocity
+                                vx = nl(dx) * (screen_width / FRAME_WIDTH)
+                                vy = nl(dy) * (screen_height / FRAME_HEIGHT)
+        
+                                # Cap per-frame movement to avoid jumps
+                                MAX_STEP = 40.0
+                                if abs(vx) > MAX_STEP:
+                                    vx = np.sign(vx) * MAX_STEP
+                                if abs(vy) > MAX_STEP:
+                                    vy = np.sign(vy) * MAX_STEP
+        
+                                try:
+                                    cur_x, cur_y = get_cursor_pos()
+                                    target_x = cur_x + vx
+                                    target_y = cur_y + vy
+                                    # Clamp to screen
+                                    target_x = min(max(target_x, 0), screen_width - 1)
+                                    target_y = min(max(target_y, 0), screen_height - 1)
+                                    set_cursor_pos(target_x, target_y)
+                                except Exception as e:
+                                    print(f"Mouse Move Error: {e}")
+        
+                                # Display info for tuning
+                                try:
+                                    cv2.putText(frame, f"vx:{vx:.1f} vy:{vy:.1f}", (10, Y_OFFSET * 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, TEXT_COLOR, 1)
+                                    est_x = np.interp(smoothed_middle_x, [0, FRAME_WIDTH], [0, screen_width])
+                                    est_y = np.interp(smoothed_middle_y, [0, FRAME_HEIGHT], [0, screen_height])
+                                    cv2.putText(frame, f"Est Cursor: ({int(est_x)}, {int(est_y)})", (10, Y_OFFSET * 6), cv2.FONT_HERSHEY_SIMPLEX, 0.5, TEXT_COLOR, 1)
+                                except Exception:
+                                    pass
+        
+                                # Update stored previous smoothed coordinates for next frame
+                                hand_tracker.prev_middle_x = smoothed_middle_x
+                                hand_tracker.prev_middle_y = smoothed_middle_y
+                            else:
+                                cv2.putText(frame, "Dead Zone Active", (10, Y_OFFSET * 7), cv2.FONT_HERSHEY_SIMPLEX, FONT_SCALE, TEXT_COLOR, FONT_THICKNESS)
+                        except (TypeError, ValueError) as e:
                             print(f"Mouse Move Error: {e}")
+                        except Exception as e:
+                            print(f"Unexpected Mouse Move Error: {e}")
+        
+            cv2.namedWindow("MediaPipe Hands - Real-Time", cv2.WINDOW_NORMAL)
+            cv2.resizeWindow("MediaPipe Hands - Real-Time", FRAME_WIDTH, FRAME_HEIGHT)
+            cv2.imshow("MediaPipe Hands - Real-Time", frame)
+            
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+        
+        # Cleanup
+        cap.release()
+        cv2.destroyAllWindows()
+        hands.close()
 
-                        # Display info for tuning
-                        try:
-                            cv2.putText(frame, f"vx:{vx:.1f} vy:{vy:.1f}", (10, Y_OFFSET * 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, TEXT_COLOR, 1)
-                            est_x = np.interp(smoothed_middle_x, [0, FRAME_WIDTH], [0, screen_width])
-                            est_y = np.interp(smoothed_middle_y, [0, FRAME_HEIGHT], [0, screen_height])
-                            cv2.putText(frame, f"Est Cursor: ({int(est_x)}, {int(est_y)})", (10, Y_OFFSET * 6), cv2.FONT_HERSHEY_SIMPLEX, 0.5, TEXT_COLOR, 1)
-                        except Exception:
-                            pass
 
-                        # Update stored previous smoothed coordinates for next frame
-                        hand_tracker.prev_middle_x = smoothed_middle_x
-                        hand_tracker.prev_middle_y = smoothed_middle_y
-                    else:
-                        cv2.putText(frame, "Dead Zone Active", (10, Y_OFFSET * 7), cv2.FONT_HERSHEY_SIMPLEX, FONT_SCALE, TEXT_COLOR, FONT_THICKNESS)
-                except (TypeError, ValueError) as e:
-                    print(f"Mouse Move Error: {e}")
-                except Exception as e:
-                    print(f"Unexpected Mouse Move Error: {e}")
-
-    cv2.namedWindow("MediaPipe Hands - Real-Time", cv2.WINDOW_NORMAL)
-    cv2.resizeWindow("MediaPipe Hands - Real-Time", FRAME_WIDTH, FRAME_HEIGHT)
-    cv2.imshow("MediaPipe Hands - Real-Time", frame)
-    
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
-
-# Cleanup
-cap.release()
-cv2.destroyAllWindows()
-hands.close()
+if __name__=='__main__':
+    main()
