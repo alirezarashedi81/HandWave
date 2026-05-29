@@ -1,3 +1,4 @@
+from Handvisualizer import HandVisualizer
 import cv2
 import mediapipe as mp
 import numpy as np
@@ -5,24 +6,23 @@ import config  # Add this
 from Handtracker import HandTracker
 from Fpscalculator import FpsCalculator
 from Systemcontrol import SystemController
+import time
 
 class GestureTVController:
-    def __init__(self):
-        # Use config for dimensions
-        self.FRAME_WIDTH = config.FRAME_WIDTH
-        self.FRAME_HEIGHT = config.FRAME_HEIGHT
+    def __init__(self, frame_width=None, frame_height=None, camera_index=None):
+        # Use provided values or fall back to config
+        self.FRAME_WIDTH = frame_width if frame_width is not None else config.FRAME_WIDTH
+        self.FRAME_HEIGHT = frame_height if frame_height is not None else config.FRAME_HEIGHT
+        camera_idx = camera_index if camera_index is not None else config.CAMERA_INDEX
         
-        # 1. Initialize SystemController FIRST
+        # 1. Initialize SystemController first
         self.system = SystemController()
-        
-        # 2. Screen dimensions
         self.screen_width, self.screen_height = self.system.get_screen_size()
         
-        # 3. Initialize camera
-        self.cap = cv2.VideoCapture(config.CAMERA_INDEX)
+        # 2. Camera
+        self.cap = cv2.VideoCapture(camera_idx)
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.FRAME_WIDTH)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.FRAME_HEIGHT)
-        
         if not self.cap.isOpened():
             raise RuntimeError("Cannot open webcam")
         
@@ -43,6 +43,8 @@ class GestureTVController:
             self.system
         )
         self.fps_calculator = FpsCalculator()
+        self.visualizer = HandVisualizer()
+
         
         # Pairing state
         self.paired_user = None
@@ -91,6 +93,16 @@ class GestureTVController:
             for i in range(21)
         }
     
+    def cleanup(self):
+        """Release resources"""
+        if hasattr(self, 'cap') and self.cap is not None:
+            self.cap.release()
+        cv2.destroyAllWindows()
+        if hasattr(self, 'hands'):
+            self.hands.close()
+        if config.ENABLE_DEBUG_PRINTS:
+            print("Controller shut down.")
+
     def read_frame(self):
         """Read and preprocess a frame from the camera"""
         ret, frame = self.cap.read()
@@ -192,29 +204,60 @@ class GestureTVController:
     
     def process_frame(self, frame):
         """Main frame processing pipeline"""
-        frame = self.draw_fps(frame)
+        # Safety check
+        if frame is None:
+            return None
         
+        # Draw FPS first
+        fps = self.fps_calculator.calculate_fps()
+        cv2.putText(frame, f"FPS: {int(fps)}", (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        
+        # Convert to RGB for MediaPipe
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = self.hands.process(frame_rgb)
         
-        if not (results.multi_hand_landmarks and results.multi_handedness):
+        # Draw landmarks if hands detected
+        if results.multi_hand_landmarks and results.multi_handedness:
+            # Process each hand
+            for hand_landmarks, hand_handedness in zip(results.multi_hand_landmarks, results.multi_handedness):
+                hand_label = hand_handedness.classification[0].label
+                
+                # Draw landmarks with bright colors
+                if hand_label == "Right":
+                    self.mp_drawing.draw_landmarks(
+                        frame, 
+                        hand_landmarks,
+                        self.right_custom_connection,
+                        landmark_drawing_spec=self.mp_drawing.DrawingSpec(
+                            color=(0, 0, 255), thickness=4, circle_radius=5),
+                        connection_drawing_spec=self.mp_drawing.DrawingSpec(
+                            color=(0, 255, 0), thickness=2)
+                    )
+                else:
+                    self.mp_drawing.draw_landmarks(
+                        frame, 
+                        hand_landmarks,
+                        self.left_custom_connection,
+                        landmark_drawing_spec=self.mp_drawing.DrawingSpec(
+                            color=(255, 0, 0), thickness=4, circle_radius=5),
+                        connection_drawing_spec=self.mp_drawing.DrawingSpec(
+                            color=(0, 255, 255), thickness=2)
+                    )
+                
+                # Handle gestures
+                distances = self.hand_tracker.CLICK(hand_landmarks, frame, hand_label)
+                
+                # Handle cursor control for left hand
+                if hand_label == "Left" and distances:
+                    frame = self.handle_cursor_control(distances, frame)
+        else:
+            # Reset smoothing when no hands
             self.hand_tracker.prev_middle_x = None
             self.hand_tracker.prev_middle_y = None
-            return frame
-        
-        for hand_landmarks, hand_handedness in zip(results.multi_hand_landmarks, results.multi_handedness):
-            hand_label = hand_handedness.classification[0].label
-            
-            frame = self.draw_hand_landmarks(frame, hand_landmarks, hand_label)
-            distances = self.hand_tracker.CLICK(hand_landmarks, frame, hand_label)
-            
-            if hand_label == "Left" and distances:
-                frame = self.handle_cursor_control(distances, frame)
         
         return frame
-    
-    # draw_hand_landmarks method stays the same as your current code
-    
+
     def run(self):
         """Main loop"""
         if config.ENABLE_WINDOW:
@@ -224,29 +267,34 @@ class GestureTVController:
         if config.ENABLE_DEBUG_PRINTS:
             print(f"Gesture TV Controller started")
             print(f"Screen: {self.screen_width}x{self.screen_height}")
-            print(f"Camera: {self.FRAME_WIDTH}x{self.FRAME_HEIGHT}")
+            print(f"Frame: {self.FRAME_WIDTH}x{self.FRAME_HEIGHT}")
         
         try:
             while True:
                 frame = self.read_frame()
                 if frame is None:
                     print("Failed to grab frame")
-                    break
+                    time.sleep(0.01)
+                    continue
                 
-                frame = self.process_frame(frame)
+                # Process frame
+                processed_frame = self.process_frame(frame)
                 
-                if config.ENABLE_WINDOW:
-                    cv2.imshow(config.WINDOW_NAME, frame)
+                # Only show if we have a valid frame
+                if processed_frame is not None and processed_frame.size > 0:
+                    if config.ENABLE_WINDOW:
+                        cv2.imshow(config.WINDOW_NAME, processed_frame)
+                else:
+                    # Show original frame if processing fails
+                    if config.ENABLE_WINDOW:
+                        cv2.imshow(config.WINDOW_NAME, frame)
                 
                 if cv2.waitKey(1) & 0xFF == ord('q'):
                     break
+                    
+        except Exception as e:
+            print(f"Error in main loop: {e}")
+            import traceback
+            traceback.print_exc()
         finally:
             self.cleanup()
-    
-    def cleanup(self):
-        """Release resources"""
-        self.cap.release()
-        cv2.destroyAllWindows()
-        self.hands.close()
-        if config.ENABLE_DEBUG_PRINTS:
-            print("Controller shut down.")
