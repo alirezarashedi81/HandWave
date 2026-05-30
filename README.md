@@ -1,110 +1,139 @@
-# Hand Gesture Mouse Control
+# Gesture TV Controller
 
-A real-time hand gesture recognition system that allows you to control your computer mouse using hand movements and gestures detected through your webcam.
+Control your mouse cursor and trigger clicks using hand gestures detected through a webcam. Built with MediaPipe, OpenCV, and a C++ pybind11 extension for performance-critical processing.
 
-## Features
+---
 
-- **Hand Tracking**: Uses MediaPipe to detect and track hand landmarks in real-time
-- **Cursor Control**: Move your mouse cursor by moving your left hand's middle finger
-- **Gesture-Based Clicks**:
-  - Left hand thumb + index finger: Double-click
-  - Left hand thumb + pinky: Click and drag (hold)
-  - Right hand gestures: Reserved for future functionality
-- **Smooth Movement**: Implements exponential moving average (EMA) smoothing for stable cursor control
-- **Dead Zone**: Prevents jittery movements with a configurable threshold
-- **Visual Feedback**: Real-time display of hand skeleton and gesture distances
-- **Performance Monitoring**: FPS counter to monitor system performance
+## Project Structure
+
+```
+G:/
+│   config.py           — all tunable parameters (thresholds, camera, colours)
+│   Fpscalculator.py    — FPS tracking
+│   Gesturetv.py        — main controller class (camera loop, cursor control)
+│   Handtracker.py      — gesture detection, wraps the C++ ClickProcessor
+│   Handvisualizer.py   — all OpenCV drawing helpers
+│   Systemcontrol.py    — Windows mouse/cursor API via ctypes
+│   main.py             — entry point, handles dependency install + C++ build
+│   test.py             — pytest suite
+│
+└───Click_utils/
+        click_utils.cpp                  — C++ ClickProcessor (EMA, dead-zone, distances)
+        setup.py                         — pybind11 build script
+        click_utils.cp310-win_amd64.pyd  — compiled extension (auto-built by main.py)
+```
+
+---
 
 ## Requirements
 
-```
-Python 3.10
-opencv-python
-mediapipe
-pygame
-numpy
-```
+- Windows 10/11
+- Python 3.10
+- A webcam
+- A C++ compiler — **Visual Studio Build Tools** (MSVC) recommended on Windows
+  - Download: https://visualstudio.microsoft.com/visual-cpp-build-tools/
+  - During install select **"Desktop development with C++"**
 
-## Installation
+---
 
-1. Clone this repository:
+## Quick Start
+
+Just run:
+
 ```bash
-git clone https://github.com/alirezarashedi81/hand-gesture-mouse-control.git
-cd hand-gesture-mouse-control
+python main.py
 ```
 
-2. Install the required dependencies:
-```bash
+`main.py` will automatically:
+1. Install any missing Python packages via pip
+2. Compile `Click_utils/click_utils.cpp` if the `.pyd` is missing or out of date
+3. Launch the controller
 
-pip install -r requirements.txt
+No manual build step needed.
 
-```
+---
 
-## Usage
+## Gestures
 
-1. Run the script:
-```bash
-python hand_mouse_control.py
-```
+| Hand  | Gesture                        | Action         |
+|-------|--------------------------------|----------------|
+| Left  | Move middle finger             | Move cursor    |
+| Right | Pinch thumb + index finger     | Double click   |
+| Right | Pinch thumb + pinky finger     | Click and drag |
 
-2. Position your left hand in front of the webcam
-
-3. Control the mouse:
-   - **Move cursor**: Move your left hand to control the cursor position
-   - **Double-click**: Touch your left thumb to your left index finger
-   - **Click and drag**: Touch your left thumb to your left pinky finger (hold to drag, release to drop)
-
-4. Press `q` to quit the application
+---
 
 ## Configuration
 
-You can adjust various parameters in the code:
+All parameters are in `config.py`. Key ones:
 
-- `FRAME_WIDTH`, `FRAME_HEIGHT`: Webcam resolution (default: 320x240)
-- `alpha`: EMA smoothing factor (default: 0.12, lower = smoother but slower response)
-- `DEAD_ZONE_THRESHOLD`: Minimum movement to register (default: 3 pixels)
-- `GAMMA`: Non-linear velocity mapping exponent (default: 1.0)
-- `GAIN`: Overall sensitivity multiplier (default: 2.0)
-- `MAX_STEP`: Maximum cursor movement per frame (default: 40 pixels)
+| Parameter             | Default | Description                                      |
+|-----------------------|---------|--------------------------------------------------|
+| `PINCH_THRESHOLD`     | 10 px   | Distance below which a pinch is detected         |
+| `RELEASE_THRESHOLD`   | 15 px   | Distance above which a pinch is released         |
+| `EMA_ALPHA`           | 0.12    | Smoothing factor — lower is smoother, more lag   |
+| `DEAD_ZONE_THRESHOLD` | 3 px    | Minimum movement before cursor updates           |
+| `VELOCITY_GAIN`       | 4.0     | Overall cursor speed multiplier                  |
+| `MAX_CURSOR_STEP`     | 40 px   | Maximum cursor movement per frame                |
+| `FLIP_HORIZONTAL`     | True    | Mirror the camera feed                           |
+| `CAMERA_INDEX`        | 0       | Webcam index                                     |
+
+---
 
 ## How It Works
 
-1. **Hand Detection**: MediaPipe Hands detects hand landmarks in each frame
-2. **Gesture Recognition**: Calculates distances between finger tips to detect gestures
-3. **Cursor Movement**: Tracks the left hand's middle finger tip position and translates it to cursor coordinates
-4. **Smoothing**: Applies exponential moving average to reduce jitter
-5. **Mouse Events**: Uses Windows API (ctypes) to control system cursor and generate mouse clicks
+### C++ Extension — `ClickProcessor`
 
-## Limitations
+`click_utils.cpp` is compiled into a Python extension via pybind11. Each hand gets its own independent `ClickProcessor` instance so their state never interferes. On every frame it:
 
-- **Windows Only**: Currently uses Windows-specific APIs for mouse control
-- **Single Hand**: Optimized for tracking one hand at a time
-- **Lighting Conditions**: Performance depends on good lighting for accurate hand detection
-- **CPU Intensive**: Real-time video processing may impact system performance
+1. Converts normalised MediaPipe landmark coordinates to pixel coordinates
+2. Computes Euclidean distances between thumb-index and thumb-pinky tips
+3. Checks the dead zone by comparing the raw middle-finger position to the previous frame
+4. Applies EMA smoothing to the middle-finger position for stable cursor movement
 
-## Future Enhancements
+The two tuneable parameters are exposed as Python properties so they can be read or changed at runtime:
 
-- Cross-platform support (macOS, Linux)
-- Right-hand gesture functionality
-- Customizable gesture mappings
-- Scrolling gestures
-- Configuration file for easy parameter adjustment
+```python
+proc.alpha               = 0.12
+proc.dead_zone_threshold = 3.0
+```
 
-## Troubleshooting
+### Hand Label Correction
 
-**Low FPS**: Reduce webcam resolution or close other applications
+MediaPipe labels hands from the subject's perspective. Because the frame is horizontally flipped (`FLIP_HORIZONTAL = True`), the labels are swapped in `process_frame()` so Left/Right always match what appears on screen.
 
-**Jittery cursor**: Decrease `alpha` value for more smoothing or increase `DEAD_ZONE_THRESHOLD`
+### Cursor Control
 
-**Cursor too fast/slow**: Adjust `GAIN` and `GAMMA` parameters
+The left hand controls the cursor. The smoothed middle-finger position is computed by the C++ processor each frame. Velocity is derived from the delta between the previous and current smoothed positions and passed through a non-linear mapping (`VELOCITY_GAMMA`, `VELOCITY_GAIN`) before being applied to the system cursor.
 
-**Hand not detected**: Ensure good lighting and hand is within webcam view
+---
 
-## License
+## Running Tests
 
-MIT License - feel free to use and modify as needed
+```bash
+pytest test.py -v
+```
 
-## Acknowledgments
+The test suite covers:
+- `FpsCalculator` — initial state and FPS calculation
+- `HandTracker` helpers — EMA, dead zone (Python path)
+- Dead zone source — verifies the flag comes from the C++ processor's raw-position tracking
+- Per-hand isolation — confirms the two `ClickProcessor` instances are fully independent
+- `CLICK()` return dict — all keys, first-call `None` for `prev_mx/my`, unknown label
+- Click/drag gestures — pinch detection and release for both thumb-index and thumb-pinky
+- `reset_smoothing()` — clears both processor state and prev snapshots
+- `HandVisualizer` — all drawing methods run without error
+- `config` — required attributes and correct default values
 
-- Built with [MediaPipe](https://google.github.io/mediapipe/) by Google
-- Uses [OpenCV](https://opencv.org/) for video processing
+---
+
+## Manual Build (if needed)
+
+If you want to compile the extension yourself without running `main.py`:
+
+```bash
+cd Click_utils
+python setup.py build_ext --inplace
+```
+
+The resulting `.pyd` file stays inside `Click_utils/` and is picked up automatically.
